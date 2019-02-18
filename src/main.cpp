@@ -90,19 +90,21 @@ void loop() {
 
   timeSync.loop();
 
-  // delay(1000);
   unsigned long currentTime = millis();
-  unsigned long currentTimeSec = (currentTime / 1000) + timeSync.startTimeSec;
-  unsigned long currentTimeMillis = (currentTime % 1000) + timeSync.startTimeMillis;
+  if(currentTime - previousMillis >= 10000) {
+    previousMillis = currentTime;
+    // printTimeUTC(currentTimeSec, currentTimeMillis);
+    timeSync.sendNTPpacket();
+  }
+
+  if(!timeSync.m_isTimeValid) {
+    return;
+  }
+  unsigned long currentTimeSec = (currentTime / 1000) + timeSync.m_startTimeSec;
+  unsigned long currentTimeMillis = (currentTime % 1000) + timeSync.m_startTimeMillis;
   if (currentTimeMillis > 999) {
     currentTimeSec = currentTimeSec + 1;
     currentTimeMillis = currentTimeMillis % 1000;
-  }
-
-  if(currentTime - previousMillis >= 10000) {
-    previousMillis = currentTime;
-    printTimeUTC(currentTimeSec, currentTimeMillis);
-    timeSync.sendNTPpacket();
   }
 
   // unsigned long currentMillis = millis();

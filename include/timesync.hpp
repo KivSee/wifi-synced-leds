@@ -22,22 +22,20 @@ private:
 private:
   void onNtpPacketCallback(AsyncUDPPacket &packet);
 
+// timesync algorithm
 private:
-  // time at which we sent last ntp packet
-  unsigned long m_originTimeMillis = 0;
-  // round trip time of last ntp packet
-  unsigned long m_roundTrip = 999;
-  // time in arduino clock (millis) when packet was recevied
-  unsigned long m_recvTime = 0;
+  unsigned long m_roundtripThresholdForUpdate = 10;
 
-  // following values are the response time from the ntp server.
-  // ntp response with values from 1 Jan 1900 (not 1970)
-  unsigned long m_secFromNtpEpoch = 0; // seconds since epoch
-  unsigned long m_msFromNtpEpoch = 0; // ms part, e.g. [0, 1000)
+private:
+
+  // time at which we sent last ntp packet
+  uint32_t m_originTimeMillis = 0;
+  bool m_originTimeValid = false;
 
 public:
-  unsigned long startTimeSec = 0;
-  unsigned long startTimeMillis = 0;
+  bool m_isTimeValid = false;
+  unsigned long m_startTimeSec = 0;
+  unsigned long m_startTimeMillis = 0;
 
 private:
 
