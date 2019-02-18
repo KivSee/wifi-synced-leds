@@ -22,8 +22,6 @@ and add the following text to it:
 */
 #include "credentials.h"
 
-
-unsigned long previousMillis = 0;        // will store last time LED was updated
 int ledState = LOW;             // ledState used to set the LED
 
 const unsigned long interval = 100;           // interval at which to blink (milliseconds)
@@ -90,24 +88,17 @@ void loop() {
 
   timeSync.loop();
 
-  unsigned long currentTime = millis();
-  if(currentTime - previousMillis >= 10000) {
-    previousMillis = currentTime;
-    // printTimeUTC(currentTimeSec, currentTimeMillis);
-    timeSync.sendNTPpacket();
-  }
-
   if(!timeSync.m_isTimeValid) {
     return;
   }
+
+  unsigned long currentTime = millis();
   unsigned long currentTimeSec = (currentTime / 1000) + timeSync.m_startTimeSec;
   unsigned long currentTimeMillis = (currentTime % 1000) + timeSync.m_startTimeMillis;
   if (currentTimeMillis > 999) {
     currentTimeSec = currentTimeSec + 1;
     currentTimeMillis = currentTimeMillis % 1000;
   }
-
-  // unsigned long currentMillis = millis();
 
   if(currentTimeMillis < interval) {
     digitalWrite(2,HIGH);

@@ -15,23 +15,89 @@ TimeSync::TimeSync() {
   m_packetBuffer[13]  = 0x4E;
   m_packetBuffer[14]  = 49;
   m_packetBuffer[15]  = 52;
+
+  // when library starts, time is not known yet, so we need to fetch it ASAP
+  m_timeBetweenSendsMs = m_minServerSendTimeMs;
+  // and we want any value we can get just to start, we will improve it later
+  m_limitRoundtripForUpdate = m_maxAllowedRoundTripMs;
 }
 
 void TimeSync::sendNTPpacket() {
 
-  m_originTimeMillis = millis();
-  m_originTimeValid = true;
+  m_lastNtpSendTime = millis();
+  m_lastNtpPacketConsumed = true;
 
   // all NTP fields have been given values, now
   // we can send a packet requesting a timestamp:
   m_udp.writeTo(m_packetBuffer, NTP_PACKET_SIZE, m_address, m_ntpServerPort);
+
+  //Serial.println("sendingPacket");
+}
+
+void TimeSync::updateLimits(unsigned long currMillis) {
+
+  // don't update the limits if we didn't have any updates.
+  // we cannot read valid value from m_lastClockUpdateTime in that case
+  if(!m_isTimeValid) {
+    return;
+  }
+
+  //Serial.println();Serial.println("******************");
+
+
+  // we will calculate two value that derive a quality of the clock we got.
+  // both of these times are in scale 0.0 to 1.0, where 0.0 means that the
+  // value is most bad, and 1.0 means the value is most good.
+  // 0.0 -> bad, 1.0 -> good
+
+  // first value is time since last update. if we just got a clock read,
+  // then we can wait some time before the next one, and not bother the network.
+  // if last clock read was long ago, we want the next one to happen soon.
+  // if the value is at relTimeSinceLastUpdate, we want clock read ASAP
+  unsigned int timeSinceLastUpdate = currMillis - m_lastClockUpdateTime;
+  float relTimeSinceLastUpdate = max(0.0f, 1.0f - (float)timeSinceLastUpdate / (float) m_desirableUpdateFreqMs);
+  //Serial.print("relTimeSinceLastUpdate = "); Serial.println(relTimeSinceLastUpdate);
+
+  // second value is the last round trip time. if we had small round trip time,
+  // we can delay the next request since we have good value.
+  // if the last round trip time was large (close to the limit), then we want
+  // to request for a new value ASAP
+  float relRoundTrip = max(0.0f, 1.0f - (float)m_lastRoundTripTimeMs / (float)m_maxAllowedRoundTripMs);
+  //Serial.print("relRoundTrip = "); Serial.println(relRoundTrip);
+
+  // now we need to combine these two values.
+  // we need to 'OR' them -> if at least one of them has low (bad) value,
+  // then next request should happen fast. if both has good values,
+  // then we can delay next request for later time.
+  // so we multiply those two value to get the desired effect
+  float combinedFactor = min(1.0f, relTimeSinceLastUpdate * relRoundTrip);
+  //Serial.print("combinedFactor = "); Serial.println(combinedFactor);
+
+  // calculate m_timeBetweenSendsMs
+  // if combinedFactor >= 1.0, means we are not in hurry -> take max limits
+  // if combinedFactor == 0.0, means we need to update ASAP -> use min limits
+  // values in between are change linearly.
+  // this is OK since when we next send packet we will calculate them again
+  // anyway, so we just need a proper value.
+  uint32_t diffBetweenLimits = m_maxServerSendTimeMs - m_minServerSendTimeMs;
+  m_timeBetweenSendsMs = m_minServerSendTimeMs + (uint32_t)(diffBetweenLimits * combinedFactor);
+  //Serial.print("m_timeBetweenSendsMs = "); Serial.println(m_timeBetweenSendsMs);
+
+  // calculate m_limitRoundtripForUpdate
+  // if combinedFactor >= 1.0, means we are not in hurry -> use only small RTT
+  // if combinedFactor == 0.0, means we need to update ASAP -> use max RTT
+  // for values in between -> linearly
+  m_limitRoundtripForUpdate = m_maxAllowedRoundTripMs - (uint32_t)(m_maxAllowedRoundTripMs * combinedFactor);
+  //Serial.print("m_limitRoundtripForUpdate = "); Serial.println(m_limitRoundtripForUpdate);
+
+  //Serial.println("******************"); Serial.println();
 }
 
 void TimeSync::onNtpPacketCallback(AsyncUDPPacket &packet)
 {
   // this might be a retransmission of a packet we already received,
   // or some other network issue which we cannot handle
-  if(!m_originTimeValid) {
+  if(!m_lastNtpPacketConsumed) {
     return;
   }
 
@@ -39,14 +105,15 @@ void TimeSync::onNtpPacketCallback(AsyncUDPPacket &packet)
   uint32_t recvTime = millis();
 
   // check if time update is needed
-  unsigned int roundTrip = recvTime - m_originTimeMillis;
-  m_originTimeValid = false;
-  if(roundTrip >= m_roundtripThresholdForUpdate) {
+  unsigned int roundTrip = recvTime - m_lastNtpSendTime;
+  m_lastNtpPacketConsumed = false;
+  if(roundTrip >= m_limitRoundtripForUpdate) {
     // this packet took too much time for round trip. we don't use it
+    //Serial.print("===> round trip is "); Serial.print(roundTrip); Serial.println(" ms, not updating internal time");
     return;
   }
 
-  Serial.print("round trip is "); Serial.print(roundTrip); Serial.println(" ms, updating internal time");
+  Serial.print("===> round trip is "); Serial.print(roundTrip); Serial.println(" ms, updating internal time");
 
   // parse ntp response buffer
   uint8_t *packetBuffer = packet.data();
@@ -92,8 +159,11 @@ void TimeSync::onNtpPacketCallback(AsyncUDPPacket &packet)
   else {
     m_startTimeMillis = msPart - recvTimeMillis;
   }
+  m_lastClockUpdateTime = recvTime;
+  m_lastRoundTripTimeMs = roundTrip;
   m_isTimeValid = true;
 
+  updateLimits(m_lastClockUpdateTime);
 }
 
 void TimeSync::setup(const IPAddress &ntpServerAddress, uint8_t ntpServerPort) {
@@ -109,5 +179,9 @@ void TimeSync::setup(const IPAddress &ntpServerAddress, uint8_t ntpServerPort) {
 }
 
 void TimeSync::loop() {
-
+  unsigned long currMillis = millis();
+  if( (currMillis - m_lastNtpSendTime) > m_timeBetweenSendsMs) {
+    sendNTPpacket();
+    updateLimits(currMillis);
+  }
 }

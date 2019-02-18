@@ -9,10 +9,12 @@ public:
 
   TimeSync();
 
-  void sendNTPpacket();
-
   void setup(const IPAddress &ntpServerAddress, uint8_t ntpServerPort);
   void loop();
+
+private:
+  void sendNTPpacket();
+  void updateLimits(unsigned long currMillis);
 
 // network config values
 private:
@@ -22,15 +24,45 @@ private:
 private:
   void onNtpPacketCallback(AsyncUDPPacket &packet);
 
+public:
+
+  // this is a heuristic time for tuning the update algorithm.
+  // user should configure the time frequency in ms, in which clock updates
+  // are desired to take place.
+  // the library will use this value to adapt the thresholds, so time will be
+  // updated at around this time, while using the resources
+  // (cpu, network, server) as little as possible.
+  // there is no practial way for the library to ensure that time will update
+  // at this frequency (or any other frequency). this value is just for
+  // best effort
+  unsigned int m_desirableUpdateFreqMs = 1000 * 60 * 10; // 10 minutes
+
+  // bottom limit for ntp packet send to server.
+  // the library will not send packets at rate higher than that
+  unsigned int m_minServerSendTimeMs = 500; // half a second
+
+  // top limit for ntp packet send to server.
+  // the library will not wait more than this time for an update packet to server
+  unsigned int m_maxServerSendTimeMs = 1000 * 60 * 2; // two minutes
+
+  // top limit for allowed round trip time in worst case
+  // the library will not use a value if the round trip time is larger than
+  // this number of ms
+  unsigned int m_maxAllowedRoundTripMs = 15;
+
 // timesync algorithm
 private:
-  unsigned long m_roundtripThresholdForUpdate = 10;
 
-private:
+  unsigned long m_limitRoundtripForUpdate = m_maxAllowedRoundTripMs;
+  unsigned long m_timeBetweenSendsMs = m_minServerSendTimeMs;
 
   // time at which we sent last ntp packet
-  uint32_t m_originTimeMillis = 0;
-  bool m_originTimeValid = false;
+  uint32_t m_lastNtpSendTime = 0;
+  bool m_lastNtpPacketConsumed = false;
+
+  // time in esp millis() of when we last updated the clock from ntp server
+  uint32_t m_lastClockUpdateTime = 0;
+  uint32_t m_lastRoundTripTimeMs = 0;
 
 public:
   bool m_isTimeValid = false;
