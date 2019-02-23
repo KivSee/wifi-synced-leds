@@ -74,7 +74,7 @@ void TimeSync::updateLimits(unsigned long currMillis) {
   //Serial.print("combinedFactor = "); Serial.println(combinedFactor);
 
   // calculate m_timeBetweenSendsMs
-  // if combinedFactor >= 1.0, means we are not in hurry -> take max limits
+  // if combinedFactor == 1.0, means we are not in hurry -> take max limits
   // if combinedFactor == 0.0, means we need to update ASAP -> use min limits
   // values in between are change linearly.
   // this is OK since when we next send packet we will calculate them again
@@ -135,7 +135,7 @@ void TimeSync::onNtpPacketCallback(AsyncUDPPacket &packet)
   uint32_t msPart = (uint32_t)(readMsF);
   if(msPart >= 1000) {
     // this can happen in very rare scenarions, because float calculations are
-    // not precice and can inject errors
+    // not precise and can inject errors
     msPart = 999;
   }
 
@@ -152,7 +152,7 @@ void TimeSync::onNtpPacketCallback(AsyncUDPPacket &packet)
   unsigned long recvTimeSec = recvTime / 1000;
   unsigned long recvTimeMillis = recvTime % 1000;
   m_startTimeSec = secFromEpoch - recvTimeSec;
-  if ((msPart - recvTimeMillis) < 0) {
+  if (((int32)msPart - (int32)recvTimeMillis) < 0) {
     m_startTimeMillis = 1000 - (recvTimeMillis - msPart);
     m_startTimeSec--;
   }
