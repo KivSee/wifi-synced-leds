@@ -67,11 +67,13 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
 			break;
 		case WStype_TEXT:
 			USE_SERIAL.printf("[WSc] get text: %s\n", payload);
-      StaticJsonBuffer<200> jsonBuffer;
-      JsonObject& root = jsonBuffer.parseObject(payload);
+      StaticJsonDocument<200> jsonDoc;
+      DeserializationError error = deserializeJson(jsonDoc, payload);
+      if (error)
+        return;
       // filename = root["file_name"];
-      isInSong = root["song_is_playing"].as<bool>();
-      startTimeFromPlayer = root["start_time_millis_since_epoch"].as<uint64_t>();
+      isInSong = jsonDoc["song_is_playing"];
+      startTimeFromPlayer = jsonDoc["start_time_millis_since_epoch"];
       uint32_t low = startTimeFromPlayer % 0xFFFFFFFF;
       uint32_t high = (startTimeFromPlayer >> 32) % 0xFFFFFFFF;
       USE_SERIAL.println("got start_time_millis_since_epoch from player");
